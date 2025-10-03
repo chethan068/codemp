@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intelligent Code Reviewer - Analysis Report</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-java.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-okaidia.min.css" rel="stylesheet" />
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #111827; }
+        .code-viewer { font-family: 'Fira Code', monospace; }
+        .line-highlight { background-color: rgba(255, 255, 0, 0.1); }
+        /* Custom scrollbar for webkit browsers */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+    </style>
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+</head>
+<body class="text-gray-300">
+
+    <div id="loading-spinner" class="fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-50">
+        <div class="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-500"></div>
+    </div>
+
+    <div id="report-container" class="hidden">
+        <!-- Header -->
+        <header class="bg-gray-800 border-b border-gray-700 p-4 sticky top-0 z-10">
+            <div class="max-w-7xl mx-auto flex justify-between items-center">
+                <div>
+                    <h1 id="file-name" class="text-xl font-bold text-white"></h1>
+                    <p class="text-sm text-gray-400">Analysis Report</p>
+                </div>
+                <div class="flex items-center space-x-6">
+                    <div class="text-center">
+                        <span id="health-score" class="text-3xl font-bold text-yellow-400"></span>
+                        <p class="text-xs text-gray-400">Code Health</p>
+                    </div>
+                    <div class="flex space-x-4">
+                        <div id="critical-badge" class="bg-red-500 text-white px-3 py-1 rounded-full text-sm font-semibold"></div>
+                        <div id="major-badge" class="bg-orange-500 text-white px-3 py-1 rounded-full text-sm font-semibold"></div>
+                        <div id="minor-badge" class="bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-semibold"></div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="max-w-7xl mx-auto mt-4 grid grid-cols-12 gap-6 p-4">
+            <!-- Left Panel: Issue Navigator -->
+            <aside class="col-span-4 h-[calc(100vh-120px)] overflow-y-auto">
+                <div class="space-y-6">
+                    <div>
+                        <h2 class="text-lg font-semibold mb-3 text-white">Static Analysis Findings</h2>
+                        <div id="static-issues-list" class="space-y-2"></div>
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-semibold mb-3 text-white">Deep Analysis Findings (AI)</h2>
+                        <div id="llm-issues-list" class="space-y-2"></div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Right Panel: Code Viewer -->
+            <section class="col-span-8 relative">
+                 <div class="bg-gray-900 rounded-lg h-[calc(100vh-120px)] overflow-y-auto">
+                    <pre class="code-viewer w-full"><code id="code-block" class="language-java"></code></pre>
+                 </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            loadReportData();
+        });
+
+        // This function simulates fetching the report data from your backend.
+        // In a real application, this would make a fetch() call.
+        async function loadReportData() {
+            const loadingSpinner = document.getElementById('loading-spinner');
+            const reportContainer = document.getElementById('report-container');
+
+            // --- THIS IS MOCK DATA. Your backend will provide this. ---
+            const mockReportData = {
+                id: "abc-123-def-456",
+                fileName: "UserService.java",
+                codeHealth: "C+",
+                issueCounts: { critical: 1, major: 2, minor: 3 },
+                fileContent: `package com.example.service;\n\nimport com.example.model.User;\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic class UserService {\n    public User getUser(String id, List<User> users) {\n        for (User user : users) {\n            if (user.getId().equals(id)) {\n                return user;\n            }\n        }\n        return null;\n    }\n\n    public void processUsers(List<User> users) {\n        String info = null;\n        for(int i=0; i<users.size(); i++) {\n            User u = users.get(i);\n            if(u.getRole() == "ADMIN"){\n                System.out.println(info.toUpperCase()); // Potential NPE\n            }\n        }\n    }\n}\n`,
+                findings: [
+                    { type: 'static', severity: 'minor', line: 20, message: "String literal comparison using '=='", description: "The '==' operator compares object references, not values. Use '.equals()' to compare the content of strings." },
+                    { type: 'llm', severity: 'critical', line: 22, message: "Potential NullPointerException", description: "The variable 'info' is initialized to null and is dereferenced without a null check inside the loop, which will cause a NullPointerException if the condition is met." },
+                    { type: 'llm', severity: 'major', line: 8, message: "Inefficient user lookup", description: "Iterating through a list to find a user is inefficient for large lists (O(n) complexity). Consider using a Map for constant-time lookups (O(1))." },
+                    { type: 'static', severity: 'minor', line: 18, message: "For loop can be replaced with a foreach loop", description: "The for loop can be simplified to a more readable foreach loop." },
+                     { type: 'static', severity: 'minor', line: 1, message: "Missing a Javadoc comment.", description: "Each class should have a Javadoc comment." },
+                     { type: 'llm', severity: 'major', line: 17, message: "Mutable list parameter", description: "The 'users' list can be modified by this method, which might be an unintended side effect. Consider using an unmodifiable list or creating a copy." }
+                ]
+            };
+            // --- END OF MOCK DATA ---
+
+            // In a real app, you would get the report ID from the URL
+            // const reportId = window.location.pathname.split('/').pop();
+            // const response = await fetch(\`/api/report/\${reportId}\`);
+            // const reportData = await response.json();
+            const reportData = mockReportData;
+
+            // Simulate network delay
+            setTimeout(() => {
+                populateReport(reportData);
+                loadingSpinner.classList.add('hidden');
+                reportContainer.classList.remove('hidden');
+            }, 1000);
+        }
+
+        function populateReport(data) {
+            // Header
+            document.getElementById('file-name').textContent = data.fileName;
+            document.getElementById('health-score').textContent = data.codeHealth;
+            document.getElementById('critical-badge').textContent = `🔴 ${data.issueCounts.critical} Critical`;
+            document.getElementById('major-badge').textContent = `🟠 ${data.issueCounts.major} Major`;
+            document.getElementById('minor-badge').textContent = `🔵 ${data.issueCounts.minor} Minor`;
+
+            // Code Viewer
+            const codeBlock = document.getElementById('code-block');
+            codeBlock.textContent = data.fileContent;
+            Prism.highlightElement(codeBlock); // Apply syntax highlighting
+            addLineNumbers();
+
+            // Issue Lists
+            const staticList = document.getElementById('static-issues-list');
+            const llmList = document.getElementById('llm-issues-list');
+            staticList.innerHTML = '';
+            llmList.innerHTML = '';
+
+            data.findings.forEach(issue => {
+                const issueElement = createIssueElement(issue);
+                if (issue.type === 'static') {
+                    staticList.appendChild(issueElement);
+                } else {
+                    llmList.appendChild(issueElement);
+                }
+            });
+        }
+
+        function createIssueElement(issue) {
+            const severityColors = {
+                critical: 'border-red-500',
+                major: 'border-orange-500',
+                minor: 'border-blue-500'
+            };
+            const element = document.createElement('div');
+            element.className = `p-3 bg-gray-800 rounded-md border-l-4 ${severityColors[issue.severity]} cursor-pointer hover:bg-gray-700 transition`;
+            element.innerHTML = `
+                <p class="font-semibold text-white">L${issue.line}: ${issue.message}</p>
+                <p class="text-sm text-gray-400 mt-1">${issue.description}</p>
+            `;
+            element.addEventListener('click', () => {
+                highlightLine(issue.line);
+            });
+            return element;
+        }
+
+        function addLineNumbers() {
+             const pre = document.querySelector('pre.code-viewer');
+             const code = pre.querySelector('code');
+             const lines = code.innerHTML.split('\\n');
+             const numberedCode = lines.map((line, i) => `<span class="line-number pr-4 text-gray-500">${i + 1}</span>${line}`).join('\\n');
+             code.innerHTML = numberedCode;
+        }
+        
+        let highlightedLine = null;
+        function highlightLine(lineNumber) {
+            const lines = document.querySelectorAll('pre.code-viewer code .line-number');
+            if (highlightedLine) {
+                 highlightedLine.parentElement.classList.remove('line-highlight');
+            }
+            if (lineNumber > 0 && lineNumber <= lines.length) {
+                const targetLine = lines[lineNumber - 1];
+                targetLine.parentElement.classList.add('line-highlight');
+                targetLine.parentElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                highlightedLine = targetLine;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+Flask==2.2.3
+PyGithub==1.58.0
+pydriller==2.4
+pandas==2.2.2
+scikit-learn==1.5.0
+javalang==0.13.0
+python-dotenv==1.0.0
+pyjwt==2.6.0
+requests==2.31.0
+cryptography==42.0.8
+google-generativeai
+pytest==8.2.2

@@ -1,0 +1,20 @@
+Python cache files
+pycache/
+*.pyc
+
+Virtual environment folder
+venv/
+.venv/
+
+Environment variables file (NEVER commit this)
+.env
+
+Data and model artifacts (can be very large)
+data/
+models/
+
+VS Code specific
+.vscode/
+
+IDE specific
+.idea/
