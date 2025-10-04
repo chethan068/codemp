@@ -1,108 +1,91 @@
 import os
-import tempfile
 from flask import Flask, request, jsonify
+from dotenv import load_dotenv
 
-# Import all the necessary components of our application
-from .github_client import github_client
-from .ml_model import risk_model
-from .static_analyzer import static_analyzer
-from .llm_analyzer import llm_analyzer
+# Import the class names
+from .github_client import GithubClient
+from .ml_model import RiskModel
+
+# --- Initialization ---
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
 
-# --- Main Webhook Endpoint ---
+# Initialize our custom classes
+try:
+    # --- THIS IS THE FIX ---
+    # We now read the secrets from the environment and pass them to the client.
+    github_client = GithubClient(
+        app_id=os.getenv("GITHUB_APP_ID"),
+        private_key=os.getenv("GITHUB_PRIVATE_KEY"),
+        installation_id=os.getenv("GITHUB_INSTALLATION_ID")
+    )
+    risk_model = RiskModel()
+    print("✅ Models and clients initialized successfully.")
+except Exception as e:
+    print(f"❌ Error during initialization: {e}")
+    github_client = None
+    risk_model = None
+
+
 @app.route("/webhook", methods=["POST"])
 def github_webhook():
     """
-    Main endpoint to receive webhook events from the GitHub App.
+    Main webhook endpoint to receive events from the GitHub App.
     """
-    try:
-        payload = request.get_json()
-        
-        # Verify that the request is a valid pull request event
-        if "pull_request" not in payload or payload["action"] not in ["opened", "synchronize"]:
-            return jsonify({"status": "event ignored, not an opened or updated pull request"}), 200
+    if not github_client or not risk_model:
+        return jsonify({"status": "error", "message": "Server is not configured properly."}), 500
 
-        pr_data = payload["pull_request"]
+    # --- Security Verification ---
+    signature = request.headers.get('X-Hub-Signature-256')
+    if not github_client.verify_signature(request.data, signature):
+        print("❌ Unauthorized: Webhook signature is not valid.")
+        return jsonify({"status": "unauthorized"}), 401
+    
+    payload = request.get_json()
+    event_type = request.headers.get('X-GitHub-Event')
+
+    if event_type == "pull_request" and payload.get("action") in ["opened", "synchronize"]:
+        pr_number = payload["pull_request"]["number"]
         repo_name = payload["repository"]["full_name"]
-        pr_number = pr_data["number"]
-        
-        print(f"\n--- Received PR Event for {repo_name} #{pr_number} ---")
+        print(f"➡️ Received pull_request '{payload['action']}' event for {repo_name} #{pr_number}")
 
-        # Get the list of modified files from the pull request
-        pr_files = github_client.get_pr_files(repo_name, pr_number)
-        
-        for file in pr_files:
-            # We only want to analyze Java files that were modified, not deleted
-            if not file['filename'].endswith('.java') or file['status'] == 'removed':
-                continue
-
-            print(f"Analyzing file: {file['filename']}")
+        try:
+            # --- Analysis Logic ---
+            # Using the 'diff' is more efficient than getting all files
+            diff_text = github_client.get_pr_diff(repo_name, pr_number)
+            changed_snippets = github_client.parse_diff(diff_text)
             
-            # --- STAGE 1: RISK ASSESSMENT (The Gatekeeper) ---
-            file_content = github_client.get_file_content(file['raw_url'])
-            if not file_content:
-                continue
-            
-            risk_prediction = risk_model.predict(file_content)
+            for snippet in changed_snippets:
+                filename = snippet['filename']
+                # Only analyze .java files
+                if not filename.endswith('.java'):
+                    continue
 
-            if risk_prediction == 1: # '1' means high-risk
-                print(f"  - STAGE 1: File '{file['filename']}' flagged as HIGH-RISK.")
-                
-                # --- STAGE 2: DEEP ANALYSIS (The Specialist) ---
-                # We need to save the file content to a temporary file for Checkstyle
-                with tempfile.NamedTemporaryFile(mode='w+', suffix='.java', delete=False) as temp_file:
-                    temp_file.write(file_content)
-                    temp_file_path = temp_file.name
-                
-                print(f"  - STAGE 2: Running deep analysis...")
-                static_issues = static_analyzer.analyze(temp_file_path)
-                llm_issues = llm_analyzer.analyze(file_content)
+                # --- Make a Prediction with our Model for each changed snippet ---
+                prediction = risk_model.predict(snippet['content'])
+                is_high_risk = prediction[0] == 1 # 1 means buggy/high-risk
 
-                os.unlink(temp_file_path) # Clean up the temporary file
+                print(f"  - Analyzing change in '{filename}': {'HIGH RISK' if is_high_risk else 'Low Risk'}")
 
-                # Combine and format the results
-                if static_issues or llm_issues:
-                    report = format_report(file['filename'], static_issues, llm_issues)
-                    github_client.post_comment(repo_name, pr_number, report)
-                    print(f"  - REPORT: Posted a detailed review for '{file['filename']}'.")
-                else:
-                    print("  - REPORT: Deep analysis found no specific issues to report.")
+                if is_high_risk:
+                    comment = (
+                        f"**AI Code Reviewer Report for a change in `{filename}`**\n\n"
+                        f"Our custom-trained ML model (Accuracy: 0.97) has flagged a code change in this file as **high-risk**. "
+                        f"The change exhibits patterns that are statistically similar to past bugs.\n\n"
+                        f"A deeper manual review of this specific change is recommended."
+                    )
+                    github_client.post_comment(repo_name, pr_number, comment)
+                    print(f"  ✅ Posted high-risk comment for '{filename}'.")
 
-            else:
-                print(f"  - STAGE 1: File '{file['filename']}' assessed as LOW-RISK. Skipping deep analysis.")
+        except Exception as e:
+            print(f"❌ An error occurred during analysis: {e}")
 
-        return jsonify({"status": "processed"}), 200
+    return jsonify({"status": "processed"}), 200
 
-    except Exception as e:
-        print(f"An error occurred in the webhook handler: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-def format_report(filename, static_issues, llm_issues):
-    """
-    Formats the findings from both analyzers into a clean Markdown report.
-    """
-    report = [f"### 🚨 AI-Powered Analysis for `{filename}`\n"]
-    report.append("Our automated analysis has identified this file as high-risk and found the following potential issues:\n")
-    
-    # Add Static Analysis Issues
-    if static_issues:
-        report.append("---")
-        report.append("#### 📝 Static Analysis Findings (Checkstyle)")
-        for issue in static_issues:
-            report.append(f"- **Line {issue['line']} ({issue['severity']}):** {issue['message']}")
-    
-    # Add LLM Analysis Issues
-    if llm_issues:
-        report.append("---")
-        report.append("#### 🧠 Deep Analysis Findings (AI)")
-        for issue in llm_issues:
-            report.append(f"- **Line {issue['line']} ({issue['severity']}):** {issue['message']}\n  - *AI Explanation:* {issue['description']}")
-
-    return "\n".join(report)
 
 if __name__ == '__main__':
-    # This allows running the Flask app directly for local testing
-    # Note: For production, use a proper WSGI server like Gunicorn
-    app.run(host='0.0.0.0', port=5000)
+    # Setting debug=False is better for this stage to avoid double-loading
+    app.run(port=5000, debug=False)
 

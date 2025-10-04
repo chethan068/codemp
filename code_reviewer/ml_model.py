@@ -1,48 +1,40 @@
 import pickle
 import os
-from .feature_extractor import extract_features
-import numpy as np
+import sys
+
+# Add the parent directory to the path so we can import the feature_extractor
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# CORRECTED IMPORT: Use the correct function name from our latest feature extractor
+from .feature_extractor import extract_features_from_snippet
 
 class RiskModel:
     """
-    A wrapper class to load the trained scikit-learn model and make predictions.
+    A wrapper class to load the trained model and its associated scaler,
+    and provide a simple prediction method.
     """
-    def __init__(self, model_path='models/risk_assessment_model.pkl'):
-        self.model = None
-        # Adjust the path to be relative to the project root
-        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        full_model_path = os.path.join(project_root, model_path)
+    def __init__(self):
+        model_path = os.path.join('models', 'risk_assessment_model.pkl')
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found at {model_path}. Please run the training script first.")
         
-        try:
-            with open(full_model_path, 'rb') as f:
-                self.model = pickle.load(f)
-            print("Risk assessment model loaded successfully.")
-        except FileNotFoundError:
-            print(f"Warning: Model file not found at '{full_model_path}'.")
-            print("Please run 'scripts/train_model.py' to create the model.")
-        except Exception as e:
-            print(f"An error occurred while loading the model: {e}")
-
-    def predict(self, code_string):
-        """
-        Takes a raw code string, extracts features, and returns a risk prediction.
-        Returns 1 for high-risk, 0 for low-risk.
-        """
-        if not self.model:
-            print("Error: Model is not loaded, cannot make a prediction.")
-            return 0 # Default to low-risk if model isn't available
-
-        # 1. Extract features from the code
-        features = extract_features(code_string)
+        with open(model_path, 'rb') as f:
+            payload = pickle.load(f)
+            self.model = payload['model']
+            self.scaler = payload['scaler']
         
-        # 2. Reshape features for a single prediction
-        features_array = np.array(features).reshape(1, -1)
+    def predict(self, code_snippet):
+        """
+        Takes a raw code snippet, extracts features, scales them,
+        and returns a prediction from the trained model.
+        """
+        # 1. Extract features using the correct function
+        features = extract_features_from_snippet(code_snippet)
+        
+        # 2. Scale the features using the loaded scaler
+        # The model expects a 2D array, so we reshape
+        scaled_features = self.scaler.transform([features])
         
         # 3. Make a prediction
-        prediction = self.model.predict(features_array)
-        
-        return prediction[0]
+        return self.model.predict(scaled_features)
 
-# Create a single, reusable instance of the model for the app to import
-risk_model = RiskModel()
 
