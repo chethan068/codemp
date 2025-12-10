@@ -405,67 +405,92 @@
 #     ]
 
 
-import pandas as pd
-import re
-import math
+# import pandas as pd
+# import re
+# import math
+
+# def extract_features_from_snippet(code_snippet):
+#     if not isinstance(code_snippet, str):
+#         code_snippet = ""
+
+#     features = {}
+
+#     # Basic size features
+#     features['num_lines'] = len(code_snippet.splitlines())
+#     features['num_chars'] = len(code_snippet)
+
+#     # Java keywords
+#     java_keywords = [
+#         'if', 'else', 'for', 'while', 'switch', 'case', 'try', 'catch', 'finally',
+#         'throw', 'throws', 'public', 'private', 'protected', 'static', 'final',
+#         'return', 'new', 'import', 'class', 'interface', 'enum', 'extends', 'implements'
+#     ]
+#     lower_code = code_snippet.lower()
+#     features['keyword_count'] = sum(lower_code.count(k) for k in java_keywords)
+
+#     # Control flow
+#     control_keywords = ['if', 'for', 'while', 'switch', 'case']
+#     features['control_count'] = sum(lower_code.count(k) for k in control_keywords)
+
+#     # Exception handling
+#     exception_keywords = ['try', 'catch', 'throw', 'throws', 'finally']
+#     features['exception_count'] = sum(lower_code.count(k) for k in exception_keywords)
+
+#     # Method calls
+#     features['method_calls'] = len(re.findall(r'\w+\s*\(', code_snippet))
+
+#     # Comment ratio
+#     comment_lines = len([line for line in code_snippet.splitlines() if '//' in line or '/*' in line])
+#     features['comment_ratio'] = comment_lines / (features['num_lines'] + 1e-5)
+
+#     # Suspicious terms
+#     suspicious_terms = ['null', 'fail', 'error', 'exception', 'retry']
+#     features['suspicious_count'] = sum(lower_code.count(term) for term in suspicious_terms)
+
+#     # Line length variability
+#     line_lengths = [len(line) for line in code_snippet.splitlines()]
+#     features['line_stddev'] = pd.Series(line_lengths).std() if line_lengths else 0
+
+#     # Bug-prone APIs
+#     buggy_apis = ['thread', 'file', 'socket', 'inputstream', 'system.exit']
+#     features['buggy_api_count'] = sum(lower_code.count(api) for api in buggy_apis)
+
+#     # Entropy
+#     tokens = re.findall(r'\w+', code_snippet)
+#     token_freq = pd.Series(tokens).value_counts(normalize=True)
+#     entropy = -sum(p * math.log2(p) for p in token_freq)
+#     features['entropy'] = entropy
+
+#     return [
+#         features['num_lines'], features['num_chars'], features['keyword_count'],
+#         features['control_count'], features['exception_count'], features['method_calls'],
+#         features['comment_ratio'], features['suspicious_count'], features['line_stddev'],
+#         features['buggy_api_count'], features['entropy']
+#     ]
+
 
 def extract_features_from_snippet(code_snippet):
+    """
+    Extracts simple, robust text-based features from a code snippet.
+    Returns exactly 3 features.
+    """
     if not isinstance(code_snippet, str):
-        code_snippet = ""
+        return [0, 0, 0]
 
-    features = {}
-
-    # Basic size features
-    features['num_lines'] = len(code_snippet.splitlines())
-    features['num_chars'] = len(code_snippet)
-
-    # Java keywords
-    java_keywords = [
+    # Feature 1: Number of lines
+    num_lines = len(code_snippet.splitlines())
+    
+    # Feature 2: Number of characters
+    num_chars = len(code_snippet)
+    
+    # Feature 3: Keyword density (Java keywords)
+    keywords = [
         'if', 'else', 'for', 'while', 'switch', 'case', 'try', 'catch', 'finally',
         'throw', 'throws', 'public', 'private', 'protected', 'static', 'final',
-        'return', 'new', 'import', 'class', 'interface', 'enum', 'extends', 'implements'
+        'return', 'new', 'import', 'class', 'interface', 'enum'
     ]
+    
     lower_code = code_snippet.lower()
-    features['keyword_count'] = sum(lower_code.count(k) for k in java_keywords)
+    keyword_count = sum(lower_code.count(key) for key in keywords)
 
-    # Control flow
-    control_keywords = ['if', 'for', 'while', 'switch', 'case']
-    features['control_count'] = sum(lower_code.count(k) for k in control_keywords)
-
-    # Exception handling
-    exception_keywords = ['try', 'catch', 'throw', 'throws', 'finally']
-    features['exception_count'] = sum(lower_code.count(k) for k in exception_keywords)
-
-    # Method calls
-    features['method_calls'] = len(re.findall(r'\w+\s*\(', code_snippet))
-
-    # Comment ratio
-    comment_lines = len([line for line in code_snippet.splitlines() if '//' in line or '/*' in line])
-    features['comment_ratio'] = comment_lines / (features['num_lines'] + 1e-5)
-
-    # Suspicious terms
-    suspicious_terms = ['null', 'fail', 'error', 'exception', 'retry']
-    features['suspicious_count'] = sum(lower_code.count(term) for term in suspicious_terms)
-
-    # Line length variability
-    line_lengths = [len(line) for line in code_snippet.splitlines()]
-    features['line_stddev'] = pd.Series(line_lengths).std() if line_lengths else 0
-
-    # Bug-prone APIs
-    buggy_apis = ['thread', 'file', 'socket', 'inputstream', 'system.exit']
-    features['buggy_api_count'] = sum(lower_code.count(api) for api in buggy_apis)
-
-    # Entropy
-    tokens = re.findall(r'\w+', code_snippet)
-    token_freq = pd.Series(tokens).value_counts(normalize=True)
-    entropy = -sum(p * math.log2(p) for p in token_freq)
-    features['entropy'] = entropy
-
-    return [
-        features['num_lines'], features['num_chars'], features['keyword_count'],
-        features['control_count'], features['exception_count'], features['method_calls'],
-        features['comment_ratio'], features['suspicious_count'], features['line_stddev'],
-        features['buggy_api_count'], features['entropy']
-    ]
-
-
+    return [num_lines, num_chars, keyword_count]

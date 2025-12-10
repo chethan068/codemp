@@ -968,144 +968,215 @@
 # if __name__ == '__main__':
 #     train_risk_model()
 
+# import json
+# import os
+# import pandas as pd
+# import numpy as np
+# from sklearn.model_selection import train_test_split
+# from sklearn.metrics import classification_report, accuracy_score
+# from sklearn.preprocessing import StandardScaler, normalize
+# from sklearn.feature_extraction.text import TfidfVectorizer
+# from xgboost import XGBClassifier
+# import pickle
+# import sys
+# import torch
+# from transformers import AutoTokenizer, AutoModel
+
+# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# from code_reviewer.feature_extractor import extract_features_from_snippet
+
+# # --- Configuration ---
+# INPUT_FILE = 'data/bugfix_changes.json'
+# MODEL_DIR = 'models'
+# OUTPUT_MODEL_FILE = os.path.join(MODEL_DIR, 'risk_assessment_model.pkl')
+
+# # Load models
+# distil_tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
+# distil_model = AutoModel.from_pretrained("distilbert-base-uncased")
+# codebert_tokenizer = AutoTokenizer.from_pretrained("microsoft/codebert-base")
+# codebert_model = AutoModel.from_pretrained("microsoft/codebert-base")
+
+# def get_embedding(text, tokenizer, model):
+#     inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=128)
+#     with torch.no_grad():
+#         outputs = model(**inputs)
+#     return outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
+
+# def extract_metadata_features(snippet, file_path="", commit_msg=""):
+#     file_path = file_path or ""
+#     commit_msg = commit_msg or ""
+#     return {
+#         "msg_length": len(commit_msg),
+#         "has_bug_keyword": int(any(kw in commit_msg.lower() for kw in ['fix', 'bug', 'patch'])),
+#         "path_depth": file_path.count('/') + file_path.count('\\'),
+#         "snippet_length": len(snippet)
+#     }
+
+# def tfidf_risk_score(snippets):
+#     vectorizer = TfidfVectorizer(max_features=1000)
+#     tfidf_matrix = vectorizer.fit_transform(snippets)
+#     risky_tokens = ['null', 'catch', 'synchronized', 'Thread', 'System.exit', 'Exception']
+#     token_index = [vectorizer.vocabulary_.get(tok.lower()) for tok in risky_tokens if vectorizer.vocabulary_.get(tok.lower()) is not None]
+#     scores = tfidf_matrix[:, token_index].sum(axis=1).A1
+#     return np.clip(scores / scores.max(), 0, 1)
+
+# def train_risk_model():
+#     if not os.path.exists(MODEL_DIR):
+#         os.makedirs(MODEL_DIR)
+
+#     print("--- Loading Dataset ---")
+#     with open(INPUT_FILE, 'r') as f:
+#         dataset = json.load(f)
+
+#     data = []
+#     for change in dataset:
+#         data.append({
+#             'snippet': change['buggy_change'],
+#             'file_path': change.get('file_path', ''),
+#             'commit_msg': change.get('commit_msg', ''),
+#             'label': None
+#         })
+#         data.append({
+#             'snippet': change['fixed_change'],
+#             'file_path': change.get('file_path', ''),
+#             'commit_msg': change.get('commit_msg', ''),
+#             'label': None
+#         })
+
+#     df = pd.DataFrame(data)
+#     df = df.sample(n=400, random_state=42)
+
+#     print("Scoring risk with TF-IDF...")
+#     tfidf_scores = tfidf_risk_score(df['snippet'])
+#     df['label'] = (tfidf_scores > 0.5).astype(int)
+
+#     print("Extracting structured features...")
+#     structured = df['snippet'].apply(extract_features_from_snippet)
+#     df_structured = pd.DataFrame(structured.tolist())
+
+#     print("Extracting metadata features...")
+#     metadata = df.apply(lambda row: extract_metadata_features(row['snippet'], row['file_path'], row['commit_msg']), axis=1)
+#     df_metadata = pd.DataFrame(metadata.tolist())
+
+#     print("Generating fresh embeddings...")
+#     distil_embed = np.array([get_embedding(code, distil_tokenizer, distil_model) for code in df['snippet']])
+#     codebert_embed = np.array([get_embedding(code, codebert_tokenizer, codebert_model) for code in df['snippet']])
+#     embeddings = normalize(np.hstack([distil_embed, codebert_embed]))
+
+#     scaler = StandardScaler()
+#     X_structured = scaler.fit_transform(df_structured)
+#     X_metadata = scaler.fit_transform(df_metadata)
+#     X = np.hstack([embeddings, X_structured, X_metadata])
+#     y = df['label']
+
+#     # Drop NaNs
+#     valid_mask = ~np.isnan(X).any(axis=1)
+#     X = X[valid_mask]
+#     y = y[valid_mask]
+
+#     print(f"Final shape: {X.shape}")
+
+#     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42, stratify=y)
+
+#     print("\n--- Training XGBoost ---")
+#     pos_weight = (len(y_train) - sum(y_train)) / sum(y_train)
+#     model = XGBClassifier(n_estimators=300, learning_rate=0.05, scale_pos_weight=pos_weight, use_label_encoder=False, eval_metric='logloss')
+#     model.fit(X_train, y_train)
+#     y_pred = model.predict(X_test)
+
+#     print("\n--- FINAL REPORT ---")
+#     print(classification_report(y_test, y_pred, target_names=['Not Buggy (0)', 'Buggy (1)']))
+#     print(f"Accuracy: {accuracy_score(y_test, y_pred):.4f}")
+
+#     with open(OUTPUT_MODEL_FILE, 'wb') as f:
+#         pickle.dump({
+#             'model': model,
+#             'scaler': scaler,
+#             'tokenizers': {
+#                 'distil': distil_tokenizer,
+#                 'codebert': codebert_tokenizer
+#             },
+#             'embedding_models': {
+#                 'distil': distil_model,
+#                 'codebert': codebert_model
+#             }
+#         }, f)
+
+#     print(f"\nModel saved to {OUTPUT_MODEL_FILE}")
+
+# if __name__ == '__main__':
+#     train_risk_model()
+
+
 import json
 import os
 import pandas as pd
-import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, accuracy_score
-from sklearn.preprocessing import StandardScaler, normalize
-from sklearn.feature_extraction.text import TfidfVectorizer
-from xgboost import XGBClassifier
+import lightgbm as lgb
+from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import StandardScaler
 import pickle
 import sys
-import torch
-from transformers import AutoTokenizer, AutoModel
 
+# Add path to import our specific feature extractor
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from code_reviewer.feature_extractor import extract_features_from_snippet
 
-# --- Configuration ---
 INPUT_FILE = 'data/bugfix_changes.json'
 MODEL_DIR = 'models'
 OUTPUT_MODEL_FILE = os.path.join(MODEL_DIR, 'risk_assessment_model.pkl')
 
-# Load models
-distil_tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
-distil_model = AutoModel.from_pretrained("distilbert-base-uncased")
-codebert_tokenizer = AutoTokenizer.from_pretrained("microsoft/codebert-base")
-codebert_model = AutoModel.from_pretrained("microsoft/codebert-base")
-
-def get_embedding(text, tokenizer, model):
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=128)
-    with torch.no_grad():
-        outputs = model(**inputs)
-    return outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
-
-def extract_metadata_features(snippet, file_path="", commit_msg=""):
-    file_path = file_path or ""
-    commit_msg = commit_msg or ""
-    return {
-        "msg_length": len(commit_msg),
-        "has_bug_keyword": int(any(kw in commit_msg.lower() for kw in ['fix', 'bug', 'patch'])),
-        "path_depth": file_path.count('/') + file_path.count('\\'),
-        "snippet_length": len(snippet)
-    }
-
-def tfidf_risk_score(snippets):
-    vectorizer = TfidfVectorizer(max_features=1000)
-    tfidf_matrix = vectorizer.fit_transform(snippets)
-    risky_tokens = ['null', 'catch', 'synchronized', 'Thread', 'System.exit', 'Exception']
-    token_index = [vectorizer.vocabulary_.get(tok.lower()) for tok in risky_tokens if vectorizer.vocabulary_.get(tok.lower()) is not None]
-    scores = tfidf_matrix[:, token_index].sum(axis=1).A1
-    return np.clip(scores / scores.max(), 0, 1)
-
 def train_risk_model():
     if not os.path.exists(MODEL_DIR):
         os.makedirs(MODEL_DIR)
-
+        
     print("--- Loading Dataset ---")
-    with open(INPUT_FILE, 'r') as f:
-        dataset = json.load(f)
+    try:
+        with open(INPUT_FILE, 'r') as f:
+            dataset = json.load(f)
+    except FileNotFoundError:
+        print("Please run scripts/mine_data.py first.")
+        return
 
     data = []
     for change in dataset:
-        data.append({
-            'snippet': change['buggy_change'],
-            'file_path': change.get('file_path', ''),
-            'commit_msg': change.get('commit_msg', ''),
-            'label': None
-        })
-        data.append({
-            'snippet': change['fixed_change'],
-            'file_path': change.get('file_path', ''),
-            'commit_msg': change.get('commit_msg', ''),
-            'label': None
-        })
-
+        data.append({'snippet': change['buggy_change'], 'label': 1})
+        data.append({'snippet': change['fixed_change'], 'label': 0})
+    
     df = pd.DataFrame(data)
-    df = df.sample(n=400, random_state=42)
 
-    print("Scoring risk with TF-IDF...")
-    tfidf_scores = tfidf_risk_score(df['snippet'])
-    df['label'] = (tfidf_scores > 0.5).astype(int)
-
-    print("Extracting structured features...")
-    structured = df['snippet'].apply(extract_features_from_snippet)
-    df_structured = pd.DataFrame(structured.tolist())
-
-    print("Extracting metadata features...")
-    metadata = df.apply(lambda row: extract_metadata_features(row['snippet'], row['file_path'], row['commit_msg']), axis=1)
-    df_metadata = pd.DataFrame(metadata.tolist())
-
-    print("Generating fresh embeddings...")
-    distil_embed = np.array([get_embedding(code, distil_tokenizer, distil_model) for code in df['snippet']])
-    codebert_embed = np.array([get_embedding(code, codebert_tokenizer, codebert_model) for code in df['snippet']])
-    embeddings = normalize(np.hstack([distil_embed, codebert_embed]))
-
-    scaler = StandardScaler()
-    X_structured = scaler.fit_transform(df_structured)
-    X_metadata = scaler.fit_transform(df_metadata)
-    X = np.hstack([embeddings, X_structured, X_metadata])
+    print("Extracting features (Expect 3 features)...")
+    # This calls your updated feature extractor
+    features = df['snippet'].apply(extract_features_from_snippet)
+    
+    # We verify that we are putting them into exactly 3 columns
+    # These match the return values from feature_extractor.py: [num_lines, num_chars, keyword_count]
+    df_features = pd.DataFrame(features.tolist(), columns=['lines', 'chars', 'keywords'])
+    
+    X = df_features
     y = df['label']
 
-    # Drop NaNs
-    valid_mask = ~np.isnan(X).any(axis=1)
-    X = X[valid_mask]
-    y = y[valid_mask]
-
-    print(f"Final shape: {X.shape}")
+    print(f"Features extracted. Shape: {X.shape}") # Should print (Rows, 3)
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42, stratify=y)
 
-    print("\n--- Training XGBoost ---")
-    pos_weight = (len(y_train) - sum(y_train)) / sum(y_train)
-    model = XGBClassifier(n_estimators=300, learning_rate=0.05, scale_pos_weight=pos_weight, use_label_encoder=False, eval_metric='logloss')
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
+    # Scale the features
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
 
-    print("\n--- FINAL REPORT ---")
-    print(classification_report(y_test, y_pred, target_names=['Not Buggy (0)', 'Buggy (1)']))
+    print("Training LightGBM Model...")
+    model = lgb.LGBMClassifier(n_estimators=200, random_state=42, class_weight='balanced')
+    model.fit(X_train_scaled, y_train)
+
+    y_pred = model.predict(X_test_scaled)
     print(f"Accuracy: {accuracy_score(y_test, y_pred):.4f}")
 
+    # Save model AND scaler so app.py can reuse them
+    payload = {'model': model, 'scaler': scaler}
     with open(OUTPUT_MODEL_FILE, 'wb') as f:
-        pickle.dump({
-            'model': model,
-            'scaler': scaler,
-            'tokenizers': {
-                'distil': distil_tokenizer,
-                'codebert': codebert_tokenizer
-            },
-            'embedding_models': {
-                'distil': distil_model,
-                'codebert': codebert_model
-            }
-        }, f)
-
-    print(f"\nModel saved to {OUTPUT_MODEL_FILE}")
+        pickle.dump(payload, f)
+    print(f"Model saved to {OUTPUT_MODEL_FILE}")
 
 if __name__ == '__main__':
     train_risk_model()
-
-
-

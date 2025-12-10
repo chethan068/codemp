@@ -1,20 +1,13 @@
-Python cache files
-pycache/
-*.pyc
-
-Virtual environment folder
-venv/
-.venv/
-
-Environment variables file (NEVER commit this)
+# Secrets (NEVER PUSH THIS)
 .env
 
-Data and model artifacts (can be very large)
+# Dependencies and binaries
+venv/
+__pycache__/
+*.pyc
+
+# Large Data and Models
 data/
 models/
-
-VS Code specific
-.vscode/
-
-IDE specific
-.idea/
+reports/
+tools/

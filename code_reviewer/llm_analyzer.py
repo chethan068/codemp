@@ -1,102 +1,73 @@
 import os
 import google.generativeai as genai
 import json
+import re
+import time
 
-class LLMAnalyzer:
+def analyze_with_llm(code_snippet):
     """
-    Handles sending code to a Large Language Model (Google's Gemini) for deep analysis.
+    Analyzes a code snippet using the Google Gemini model (Gemini 2.5 Flash).
     """
-    def __init__(self):
-        self.model = None
-        try:
-            api_key = os.getenv("GOOGLE_API_KEY")
-            if not api_key:
-                raise ValueError("GOOGLE_API_KEY environment variable not set.")
-            
-            genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-pro')
-            print("Google Gemini model initialized successfully.")
-        except Exception as e:
-            print(f"Error initializing Google Gemini model: {e}")
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        print("⚠️ Warning: GOOGLE_API_KEY not found in .env file. Skipping LLM analysis.")
+        return []
 
-    def analyze(self, code_string):
-        """
-        Sends the code to the Gemini model for a review and parses the JSON response.
+    try:
+        genai.configure(api_key=api_key)
         
-        Args:
-            code_string (str): The raw source code of the file to analyze.
-            
-        Returns:
-            list: A list of dictionaries, where each dictionary is an issue found by the LLM.
-        """
-        if not self.model:
-            print("LLM model not available. Skipping deep analysis.")
-            return []
+        # UPDATED: Using 'gemini-2.5-flash' which has higher rate limits for free tier
+        model = genai.GenerativeModel('gemini-2.5-flash')
 
-        prompt = self._build_prompt(code_string)
-        
-        try:
-            # Tell the model to generate a JSON response
-            generation_config = genai.types.GenerationConfig(
-                response_mime_type="application/json"
-            )
-            response = self.model.generate_content(prompt, generation_config=generation_config)
-            
-            return self._parse_llm_response(response.text)
+        prompt = f"""
+        You are an expert Senior Software Engineer performing a critical code review on a Java code snippet.
+        Your task is to identify potential logical errors, security vulnerabilities, performance issues, or significant violations of best practices.
+        Do NOT comment on simple style issues that a linter would catch. Focus only on major and critical issues.
 
-        except Exception as e:
-            print(f"An error occurred while communicating with the LLM: {e}")
-            return []
+        For each distinct issue you find, provide a response as a JSON object within a list.
+        Each JSON object MUST have exactly three keys:
+        1. "line": an integer representing the line number where the issue occurs (or your best guess if it spans multiple lines).
+        2. "severity": a string, which must be either "major" or "critical".
+        3. "message": a string, providing a clear and concise explanation of the issue and why it is a problem.
 
-    def _build_prompt(self, code_string):
-        """
-        Constructs the detailed prompt to send to the LLM.
-        """
-        return f"""
-        You are an expert senior Java software engineer and a world-class code reviewer.
-        Your task is to analyze the following Java code snippet for potential issues.
+        If you find no issues, you MUST return an empty list: [].
 
-        Please identify a wide range of problems, including but not limited to:
-        1.  **Critical Bugs:** NullPointerExceptions, resource leaks, race conditions, infinite loops.
-        2.  **Security Vulnerabilities:** SQL injection, insecure direct object references, cross-site scripting risks.
-        3.  **Performance Issues:** Inefficient algorithms (e.g., O(n^2) loops), unnecessary object creation, slow I/O operations.
-        4.  **Best Practice Violations:** Poor naming, lack of comments, overly complex methods, mutable state being passed where it shouldn't be.
-
-        Analyze the code below:
+        Here is the code to review:
         ```java
-        {code_string}
+        {code_snippet}
         ```
-
-        Provide your feedback in a strict JSON format. The output MUST be a JSON array of objects.
-        Each object in the array should represent a single issue and have the following structure:
-        {{
-            "line": <line_number_integer>,
-            "severity": "<critical|major|minor>",
-            "message": "<A short, one-sentence summary of the issue>",
-            "description": "<A detailed, two-to-three sentence explanation of the issue, its impact, and a suggestion for how to fix it.>"
-        }}
-
-        If you find no issues, return an empty JSON array [].
-        Do not include any text or explanations outside of the main JSON array.
         """
 
-    def _parse_llm_response(self, response_text):
-        """
-        Safely parses the JSON response from the LLM.
-        """
+        # Simple retry logic for transient errors
         try:
-            issues = json.loads(response_text)
-            # Add the 'type' field to each issue
-            for issue in issues:
-                issue['type'] = 'llm'
-            return issues
-        except json.JSONDecodeError:
-            print("Error: Failed to decode JSON from LLM response.")
-            print(f"Received: {response_text}")
-            return []
+            response = model.generate_content(prompt)
         except Exception as e:
-            print(f"An error occurred while parsing the LLM response: {e}")
-            return []
+            if "429" in str(e):
+                print("⚠️ Quota exceeded. Waiting 30 seconds before retrying...")
+                time.sleep(30)
+                response = model.generate_content(prompt)
+            else:
+                raise e
 
-# Create a single, reusable instance for the app to import
-llm_analyzer = LLMAnalyzer()
+        text = response.text
+
+        # --- Robust JSON Cleaning ---
+        # 1. Try to find the JSON list inside the text using Regex
+        json_match = re.search(r'\[.*\]', text, re.DOTALL)
+        if json_match:
+            json_response_str = json_match.group(0)
+        else:
+            # If regex fails, try simple stripping
+            json_response_str = text.strip().replace('```json', '').replace('```', '').strip()
+        
+        # 2. Parse the JSON
+        issues = json.loads(json_response_str)
+        
+        for issue in issues:
+            issue['source'] = 'LLM'
+            
+        return issues
+
+    except Exception as e:
+        print(f"❌ An error occurred during LLM analysis: {e}")
+        return []
